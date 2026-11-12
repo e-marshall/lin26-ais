@@ -33,7 +33,7 @@ arguments:
     - name: "pyear-end"
       type: "int"
       source: "metadata.pyear_end"
-      help: "Last output year, within 2015-2100."
+      help: "Last output year, within 2015-2100; years after 2100 are not yet supported."
     - name: "pyear-step"
       type: "int"
       source: "metadata.pyear_step"
@@ -113,7 +113,7 @@ arguments:
         filename: "ais-diagnostics.nc"
         output_type: "global"
         pass_to_total: false
-        help: "Model mean, marginal standard deviation and sampled input configurations."
+        help: "Source sample IDs, sampled configuration indices, and sampled ice-sheet configuration parameters."
         mount: {volume: "output", container_path: "/mnt/out", transform: "filename"}
 
 volumes:

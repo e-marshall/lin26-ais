@@ -126,6 +126,12 @@ def output_years(start: int, end: int, step: int, baseyear: int) -> np.ndarray:
     baseyear need not appear in the output grid: baseline subtraction is performed
     on the full annual record before the requested output years are selected.
     """
+    if end > 2100:
+        raise ValueError(
+            f"Projection end year {end} is not yet supported. "
+            "Projections beyond 2100 are planned for a future release; "
+            "please set --pyear-end to 2100 or earlier."
+        )
     if not 2015 <= baseyear <= 2100:
         raise ValueError("baseyear must be between 2015 and 2100")
     if step < 1 or not 2015 <= start < end <= 2100 or (end - start) % step:
@@ -163,19 +169,14 @@ def write_outputs(
     sample_ids: np.ndarray,
     years: np.ndarray,
     realized_m: np.ndarray,
-    mean_m: np.ndarray,
-    std_m: np.ndarray,
-    temperature_c: np.ndarray,
     config_indices: np.ndarray,
     config_features,
     attrs: dict,
 ) -> None:
     """Write the realized AIS contribution and a separate diagnostic dataset.
 
-    realized_m, mean_m, std_m, and temperature_c have shape (n_samples, n_years).
+    realized_m has shape (n_samples, n_years).
     Each row pairs one original FaIR member with one sampled configuration.
-    std_m describes emulator uncertainty conditional on that pair; it is not
-    the spread or 5th-95th percentile range across ensemble members.
     """
     for path in (output_file, diagnostics_file):
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -196,19 +197,9 @@ def write_outputs(
         encoding={"sea_level_change": {"zlib": True, "complevel": 4, "dtype": "f4"}},
     )
 
-    # Diagnostics keep the conditional mean and standard deviation apart from
-    # the single random realization supplied to the FACTS sea-level ensemble.
+    # Diagnostics identify the climate member and sampled ice-sheet
+    # configuration attached to each realized trajectory.
     diagnostics = _base_dataset(sample_ids, years, attrs)
-    for name, values, units in (
-        ("predicted_mean", mean_m * 1000, "mm"),
-        ("emulator_standard_deviation", std_m * 1000, "mm"),
-        ("input_temperature", temperature_c, "degC relative to 2015"),
-    ):
-        diagnostics[name] = (
-            ("samples", "years"),
-            values.astype(np.float32),
-            {"units": units},
-        )
     diagnostics["source_sample_id"] = (("samples",), sample_ids)
     # Row number in the cached configuration table; repeated indices are valid
     # because configurations are sampled with replacement.

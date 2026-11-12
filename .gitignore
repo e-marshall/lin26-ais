@@ -187,3 +187,6 @@ data/
 fair_temperature_runs
 
 outputs/
+
+reference/
+.DS_Store

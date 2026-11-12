@@ -112,23 +112,27 @@ def _predict_raw(temperature_c, features, models):
         working["Year"] = int(year)
         working["Climate Scenario"] = temperature_c[:, column]
         mean[:, column] = mean_model.predict(working)
-        upper = upper_model.predict(working)
-        lower = lower_model.predict(working)
+        upper_prediction = upper_model.predict(working)
+        lower_prediction = lower_model.predict(working)
         # Treat the upper/lower separation as approximately four standard
         # deviations, then add a 0.001 m (1 mm) uncertainty floor. This is a
         # per-row emulator error scale, not an ensemble percentile interval.
-        std[:, column] = np.abs(upper - lower) / 4 + 0.001
-    if not np.isfinite(mean).all() or not np.isfinite(std).all():
+        std[:, column] = np.abs(upper_prediction - lower_prediction) / 4 + 0.001
+    if (
+        not np.isfinite(mean).all()
+        or not np.isfinite(std).all()
+    ):
         raise ValueError("AISGBM returned non-finite predictions")
     return mean, std
 
 
 def _finalize(raw_mean, raw_std, scheme, baseyear, rng):
-    """Return one realization, its conditional mean, and propagated std in metres.
+    """Return one realized trajectory in metres.
 
     All returned arrays retain shape (n_samples, 86). Smoothing and subtraction
     of a baseline are linear operations, so the same transformation can be used
-    for the sampled trajectory, the exact conditional mean, and its covariance.
+    for the sampled trajectory. The raw standard deviation is used only to
+    generate the emulator-error realization and is not written to diagnostics.
     """
     # Filtering columns of an identity matrix constructs the 86 x 86 operator S:
     # S @ trajectory applies the 19-year, first-order Savitzky-Golay filter.
@@ -159,26 +163,9 @@ def _finalize(raw_mean, raw_std, scheme, baseyear, rng):
     # Draw one trajectory per climate/configuration pair, not 100 copies as in
     # notebook plotting. Row-vector trajectories require the operator transpose.
     realized = (raw_mean + noise * raw_std) @ transform.T
-    # Zero-mean errors leave this conditional mean unchanged in expectation.
-    mean = raw_mean @ transform.T
-    std = np.empty_like(raw_std)
-    # Propagate covariance analytically in batches; no extra Monte Carlo draws
-    # are needed for std. T is transform and D = diag(raw_std for one row):
-    # independent errors: covariance = (T D)(T D).T;
-    # correlated errors: covariance = (T D L)(T D L).T.
-    for start in range(0, len(raw_std), 256):
-        stop = min(start + 256, len(raw_std))
-        # Shape (batch, output_year, input_year); scale each input-year column.
-        scaled = transform[None, :, :] * raw_std[start:stop, None, :]
-        if factor is not None:
-            scaled = scaled @ factor
-        # Sum squared row coefficients to obtain each output year's variance.
-        std[start:stop] = np.sqrt(np.sum(scaled * scaled, axis=2))
     # Enforce exact zeros at the baseline, avoiding floating-point residuals.
     realized[:, baseyear - 2015] = 0
-    mean[:, baseyear - 2015] = 0
-    std[:, baseyear - 2015] = 0
-    return realized, mean, std
+    return realized
 
 
 def project(
@@ -203,8 +190,8 @@ def project(
     is paired with one configuration sampled with replacement: uniformly for
     prior, by cached likelihood weights for posterior, or by high-end screening.
     Computation always covers 2015-2100 annually; pyear_* selects exported years.
-    The main file contains random realizations, with means and standard
-    deviations stored separately in the diagnostics file.
+    The main file contains random realizations. The diagnostics file records
+    the sampled configuration attached to each climate member.
     """
     scenario = normalize_scenario(scenario)
     # Resolve paths before checking aliases so an output cannot overwrite either
@@ -262,7 +249,7 @@ def project(
     # IDs for export. The same configuration stays attached across all years.
     selected_features = samples.iloc[indices].reset_index(drop=True).copy()
     raw_mean, raw_std = _predict_raw(temperature, selected_features, models)
-    realized, mean, std = _finalize(raw_mean, raw_std, scheme, baseyear, rng)
+    realized = _finalize(raw_mean, raw_std, scheme, baseyear, rng)
     # Select output years only after full-record smoothing, so annual and sparse
     # exports use the same trajectories and the same baseline subtraction.
     year_indices = years - 2015
@@ -275,7 +262,8 @@ def project(
         "seed": seed,
         "climate_source": str(climate_file),
         "temperature_reference": "Each FAIR sample relative to its own 2015 value",
-        "emulator_error": "One Gaussian realization per sample, smoothed and rebased",
+        "configuration_sampling": "One posterior/prior configuration per climate member",
+        "emulator_error": "One Gaussian realization per member, smoothed and rebased",
         "drift_correction": "none",
     }
     if high_end_reference_file is not None:
@@ -290,9 +278,6 @@ def project(
         sample_ids=sample_ids,
         years=years,
         realized_m=realized[:, year_indices],
-        mean_m=mean[:, year_indices],
-        std_m=std[:, year_indices],
-        temperature_c=temperature[:, year_indices],
         config_indices=indices,
         config_features=selected_features,
         attrs=attrs,

@@ -221,13 +221,15 @@ Successful runs produce two NetCDF files at the requested output paths:
 | File | Contents |
 | --- | --- |
 | `ais-gslr.nc` | `sea_level_change(samples, years, locations)`: one realized AIS contribution per climate member, in millimetres relative to `baseyear`. The global location is `-1`. |
-| `ais-diagnostics.nc` | Conditional means, emulator standard deviations, input temperatures, source sample IDs, and sampled configuration indices and parameters. |
+| `ais-diagnostics.nc` | Source sample IDs, sampled configuration indices, and the fixed parameters of each sampled ice-sheet configuration. |
 
-The diagnostic variables `predicted_mean` and `emulator_standard_deviation` use
-millimetres; `input_temperature` uses degrees Celsius relative to 2015. The
-standard deviation describes emulator uncertainty conditional on a member and
-its configuration, rather than the spread across the ensemble. Configuration
-indices can repeat because sampling uses replacement.
+The diagnostics file contains `source_sample_id`, `model_config_index`, and one
+`parameter_*` variable for each fixed model-configuration feature. Each has one
+value per climate member. Configuration indices can repeat because sampling
+uses replacement. The main output contains the sampled configuration
+uncertainty together with a realization of emulator error; these diagnostics
+identify the configuration used for each trajectory without reporting
+conditional means or uncertainty intervals.
 
 With the example settings, both files contain 86 annual output years from 2015
 to 2100 and preserve the climate input's sample IDs and ordering. Sea-level
